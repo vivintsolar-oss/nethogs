@@ -28,6 +28,8 @@
 #include <cerrno>
 #include <cstdlib>
 #include <algorithm>
+#include <fstream>
+#include <sys/time.h>
 
 #include <ncurses.h>
 #include "nethogs.h"
@@ -49,6 +51,10 @@ extern bool showcommandline;
 
 extern unsigned refreshlimit;
 extern unsigned refreshcount;
+
+extern std::string fileoutputpath;
+
+extern long long starttime;
 
 #define PID_MAX 4194303
 
@@ -85,6 +91,7 @@ public:
 
   void show(int row, unsigned int proglen, unsigned int devlen);
   void log();
+  void json(std::ostream& json_strm);
 
   double sent_value;
   double recv_value;
@@ -220,6 +227,44 @@ void Line::log() {
   std::cout << '/' << m_pid << '/' << m_uid << "\t" << sent_value << "\t" << recv_value << std::endl;
 }
 
+/**
+ * Replaces all occurrances of the 'from' string to the 'to' string in 'str'.
+ */
+void replace_all(std::string& str, const std::string& from, const std::string& to) {
+  if(from.empty())
+    return;
+  size_t start_pos = 0;
+  while((start_pos = str.find(from, start_pos)) != std::string::npos) {
+    str.replace(start_pos, from.length(), to);
+    start_pos += to.length();
+  }
+}
+
+/**
+ * Builds a JSON string representation of the Line, used for outputing to a file with
+ *  the -o option.
+ */
+void Line::json(std::ostream& json_strm) {
+  // Make up the process name by combining the process name along with the command line args
+  std::ostringstream fullname_strm;
+  fullname_strm << m_name << " " << m_cmdline;
+  std::string fullname = fullname_strm.str();
+
+  // Trim the trailing whitespace
+  fullname.erase(std::find_if(fullname.rbegin(), fullname.rend(),
+                 std::not1(std::ptr_fun<int, int>(std::isspace))).base(), fullname.end());
+
+  // Replace any double quotes with \" to ensure the JSON is valid
+  replace_all(fullname, "\"", "\\\"");
+
+  // Build the json representation of the Line
+  json_strm << "{\"name\": \"" << fullname << "\","
+            << "\"pid\": " << m_pid << ","
+            << "\"uid\": " << m_uid << ","
+            << "\"sent\": " << sent_value << ","
+            << "\"received\": " << recv_value << "}";
+}
+
 int get_devlen(Line *lines[], int nproc, int rows)
 {
   int devlen = MIN_COLUMN_WIDTH_DEV; int curlen;
@@ -307,6 +352,35 @@ void ui_tick() {
     viewMode = (viewMode + 1) % VIEWMODE_COUNT;
     break;
   }
+}
+
+/**
+ * Writes the given lines to the file path passed in from the -o 
+ *  command line option in JSON format.
+ */
+void write_file(Line *lines[], int nproc) {
+  // Get the current timestamp in milliseconds
+  struct timeval tp;
+  gettimeofday(&tp, NULL);
+  long long now = (long long) tp.tv_sec * 1000L + tp.tv_usec / 1000;
+
+  std::ofstream file;
+  file.open(fileoutputpath.c_str());
+
+  file << "{"
+       << "\"start\":" << starttime << ","
+       << "\"end\":" << now << ","
+       << "\"processes\": [";
+
+  for (int i = 0; i < nproc; i++) {
+    lines[i]->json(file);
+    if(i < nproc - 1) { // Don't add the comma for the last line
+      file << ",";
+    }
+  }
+
+  file << "]}";
+  file.close();
 }
 
 void show_trace(Line *lines[], int nproc) {
@@ -438,6 +512,10 @@ void do_refresh() {
 
   /* sort the accumulated lines */
   qsort(lines, nproc, sizeof(Line *), GreatestFirst);
+
+  if (!fileoutputpath.empty()) {
+    write_file(lines, nproc);
+  }
 
   if (tracemode || DEBUG)
     show_trace(lines, nproc);
