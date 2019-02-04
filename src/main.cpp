@@ -1,6 +1,7 @@
 #include "nethogs.cpp"
 #include <fcntl.h>
 #include <vector>
+#include <sys/time.h>
 
 #ifdef __linux__
 #include <linux/limits.h>
@@ -27,7 +28,7 @@ static void help(bool iserror) {
   // output << "usage: nethogs [-V] [-b] [-d seconds] [-t] [-p] [-f (eth|ppp))]
   // [device [device [device ...]]]\n";
   output << "usage: nethogs [-V] [-h] [-b] [-d seconds] [-v mode] [-c count] "
-            "[-t] [-p] [-s] [-a] [-l] [-f filter] [-C]"
+            "[-t] [-p] [-s] [-a] [-l] [-f filter] [-C] [-o file path]"
             "[device [device [device ...]]]\n";
   output << "		-V : prints version.\n";
   output << "		-h : prints this help.\n";
@@ -45,6 +46,7 @@ static void help(bool iserror) {
   output << "		-l : display command line.\n";
   output << "		-a : monitor all devices, even loopback/stopped ones.\n";
   output << "		-C : capture TCP and UDP.\n";
+  output << "		-o : export tracemode output to a file.\n";
   output << "		-f : EXPERIMENTAL: specify string pcap filter (like tcpdump)."
             " This may be removed or changed in a future version.\n";
   output << "		device : device(s) to monitor. default is all "
@@ -133,13 +135,17 @@ void clean_up() {
 }
 
 int main(int argc, char **argv) {
+  // Save the unix start time in milliseconds to record later in the output file
+  struct timeval tp;
+  gettimeofday(&tp, NULL);
+  starttime = (long long) tp.tv_sec * 1000L + tp.tv_usec / 1000;
 
   int promisc = 0;
   bool all = false;
   char *filter = NULL;
 
   int opt;
-  while ((opt = getopt(argc, argv, "Vhbtpsd:v:c:laf:C")) != -1) {
+  while ((opt = getopt(argc, argv, "Vhbtpsd:v:c:laf:Co:")) != -1) {
     switch (opt) {
     case 'V':
       versiondisplay();
@@ -180,6 +186,9 @@ int main(int argc, char **argv) {
       break;
     case 'C':
       catchall = true;
+      break;
+    case 'o':
+      fileoutputpath.assign(optarg);
       break;
     default:
       help(true);

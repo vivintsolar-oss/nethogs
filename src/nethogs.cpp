@@ -64,6 +64,8 @@ bool showcommandline = false;
 int viewMode = VIEWMODE_KBPS;
 const char version[] = " version " VERSION;
 timeval curtime;
+std::string fileoutputpath;
+long long starttime = 0;
 
 bool local_addr::contains(const in_addr_t &n_addr) {
   if ((sa_family == AF_INET) && (n_addr == addr))
